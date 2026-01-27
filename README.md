@@ -3,14 +3,16 @@
 
 这是一个为 Google Antigravity 设计的专业级 Skill，旨在通过 AI 代理全自动生成、编辑和导出剪映（JianYing/CapCut 中国版）视频草稿。
 
-## 🚀 Quick Start / 快速入门
+## 🚀 快速开始 (Quick Start)
 
-### 1. Install skills
+### 1. 安装 Skill
+请在您的项目根目录下，打开终端 (Terminal) 运行以下命令：
 ```bash
 git clone https://github.com/luoluoluo22/jianying-editor-skill.git .agent/skills/jianying-editor
 ```
 
-### 2. Use a skill in your AI assistant
+### 2. 在 AI 对话中使用
+安装完成后，直接对您的 AI 助手说：
 ```text
 @jianying-editor 帮我用 assets 里的视频创建一个自动剪辑项目
 ```
@@ -19,46 +21,51 @@ git clone https://github.com/luoluoluo22/jianying-editor-skill.git .agent/skills
 
 ## 🌟 核心特性
 
-- **多轨管理**：支持视频、音频、文本、特效、滤镜等无限轨道叠加。
-- **高级剪辑**：支持关键帧动画（透明度、坐标等）、倍速播放、蒙版（圆形、矩形等）。
-- **自动化导出**：集成 `uiautomation` 逻辑，支持 1080P/4K 视频一键自动导出。
-- **自带知识库**：封装了 `pyJianYingDraft` 全量源码参考，代理可直接通过查阅内部代码提供精准的 API 调用。
-- **真实素材包**：Skill 内部携带演示专用的视频和音频资源。
+- **多轨管理**：就像专业剪辑软件一样，支持视频、音频、字幕、贴纸、特效无限叠加。
+- **高级剪辑**：支持关键帧（让画面动起来）、倍速变速、蒙版裁剪。
+- **自动导出**：内置自动化脚本，支持一键导出 1080P/4K 视频（解放双手）。
+- **智能变焦**：独家的 Smart Zoom 功能，能把普通的录屏自动变成“带镜头感”的演示视频。
+- **开箱即用**：自带演示素材，安装好就能立马测试。
 
-## 📦 详细安装与配置
+## 📦 环境准备 (必读)
 
-### 1. 依赖准备 (在本地 Python 环境中执行)
-此 Skill 依赖于 `pyJianYingDraft` 及其核心组件：
+为了让 Skill 正常工作，您需要在本地电脑上做一点点准备：
 
+### 1. 安装 Python 依赖
+此 Skill 的自动导出功能需要一个自动化库。请在终端运行：
 ```bash
 pip install uiautomation
 ```
 
-### 2. 配置剪映草稿路径
-Skill 默认会在 **`SKILL.md`** 和脚本中使用标准路径：
+### 2. 确认剪映安装位置
+Skill 默认认为您的剪映安装在 C 盘默认位置：
 `C:\Users\Administrator\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
 
-如果您的剪映安装在其他位置，请在 Antigravity 提示配置时告知其正确的“草稿位置”。
+**如果您的剪映安装在 D 盘或其他位置**，请在使用时直接告诉 AI：
+> "我的剪映草稿目录在 D:\JianyingPro\..."
 
-## 📂 目录结构
+## 📂 文件夹说明
 
-- `SKILL.md`: 代理的“操作手册”和核心规约。
-- `references/`: 包含 `pyJianYingDraft` 库的全量源代码副本，作为代理的离线查询文档。
-- `scripts/`: 包含 `auto_exporter.py`（自动化导出）和 `template_replacer.py`（模板替换工具）。
-- `tools/`: 包含录屏与行为记录工具集，支持音视频同步录制。
-- `assets/`: 官方视频教程配套的各种演示素材。
+- `SKILL.md`: 给 AI 看的说明书。
+- `references/`: 剪映代码库的参考文档。
+- `tools/recording/`: **录屏神器**，都在这里面。
+- `assets/`: 演示用的测试视频和音乐。
 
-## ⚠️ 注意事项
+## ⚠️ 常见问题 (FAQ)
 
-1. **刷新机制**：由于剪映不会实时监控文件系统变化，在生成草稿后，**请重启剪映或“进出一个旧草稿”**以刷新草稿列表。
-2. **自动化导出**：目前自动导出脚本仅支持剪映 V6 及以下版本。运行导出时，请勿操作鼠标和键盘。推荐安装 **剪映 5.9 版本** 以获得最佳稳定性，详细理由及安装包获取可见此文：[剪映专业版 5.9.0 稳定版推荐](https://zhuanlan.zhihu.com/p/1951439646178402444)。
+1. **看不到新生成的草稿？**
+   剪映软件不会实时刷新文件列表。生成草稿后，请**重启剪映**，或者随便点进一个旧草稿再退出来，就能看到新的了。
 
-## � Update / 更新
+2. **自动导出失败？**
+   自动导出脚本模拟了鼠标键盘操作。
+   - 运行导出时，请**不要**动鼠标和键盘。
+   - 目前仅支持 **剪映 5.9 或更早版本** (新版本弹窗太多容易干扰脚本)。
 
-当项目有新版本发布时（参考下方的更新日志），您可以使用以下命令更新 Skill：
+## 🔄 如何更新 (Update)
+
+当有新功能发布时，您可以输入以下命令一键更新：
 
 ```bash
-# 进入 skill 目录并拉取最新代码
 cd .agent/skills/jianying-editor
 git pull
 ```
