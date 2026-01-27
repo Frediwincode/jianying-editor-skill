@@ -10,7 +10,14 @@
 git clone https://github.com/luoluoluo22/jianying-editor-skill.git .agent/skills/jianying-editor
 ```
 
-### 2. Use a skill in your AI assistant
+### 2. Update / 更新
+```bash
+# 进入 skill 目录并拉取最新代码
+cd .agent/skills/jianying-editor
+git pull
+```
+
+### 3. Use a skill in your AI assistant
 ```text
 @jianying-editor 帮我用 assets 里的视频创建一个自动剪辑项目
 ```
