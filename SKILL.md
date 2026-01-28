@@ -64,8 +64,12 @@ python .agent/skills/jianying-editor/scripts/jy_wrapper.py list-assets --type an
 # 快速创建草稿
 python .agent/skills/jianying-editor/scripts/jy_wrapper.py create --name "Test" --media "C:/video.mp4" --text "Demo"
 
-# 导出字幕为 SRT (保留时间轴)
-python .agent/skills/jianying-editor/scripts/jy_wrapper.py export-srt --name "MyProject" --output "subs.srt"
+# 导出字幕为 SRT (保留时间轴，默认输出到项目根目录)
+python .agent/skills/jianying-editor/scripts/jy_wrapper.py export-srt --name "MyProject"
+
+# 导入 SRT 字幕到草稿 (样式与剪映默认字幕一致)
+python .agent/skills/jianying-editor/scripts/jy_wrapper.py import-srt --name "MyProject" --srt "subs.srt"
+# 可选参数: --track "轨道名" --clear (导入前清除现有文本轨道)
 
 # 使用 GUI 录屏助手 (自动按时间戳命名，含声音和行为采集)
 python .agent/skills/jianying-editor/tools/recording/recorder.py

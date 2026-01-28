@@ -33,7 +33,7 @@ if os.path.exists(references_path):
 try:
     import pyJianYingDraft as draft
     from pyJianYingDraft import trange, tim
-    from pyJianYingDraft import TextIntro, TextStyle, TextBorder, KeyframeProperty
+    from pyJianYingDraft import TextIntro, TextStyle, TextBorder, KeyframeProperty, ClipSettings
     from pyJianYingDraft import VideoSceneEffectType, TransitionType, IntroType, OutroType
 except ImportError:
     fallback_path = os.path.join(os.getcwd(), "pyJianYingDraft")
@@ -41,7 +41,7 @@ except ImportError:
         sys.path.insert(0, os.getcwd())
         import pyJianYingDraft as draft
         from pyJianYingDraft import trange, tim
-        from pyJianYingDraft import TextIntro, TextStyle, TextBorder, KeyframeProperty
+        from pyJianYingDraft import TextIntro, TextStyle, TextBorder, KeyframeProperty, ClipSettings
         from pyJianYingDraft import VideoSceneEffectType, TransitionType, IntroType, OutroType
     else:
         print(f"⚠️ Warning: pyJianYingDraft module not found in standard locations.")
@@ -237,18 +237,22 @@ class JyProject:
             return req
         return phys_duration
 
-    def add_text_simple(self, text: str, start_time: str, duration: str, 
+    def add_text_simple(self, text: str, start_time, duration, 
                         track_name: str = "TextTrack",
-                        font_size: float = 15.0,
+                        font_size: float = 5.0,
                         color_rgb: tuple = (1.0, 1.0, 1.0),
                         bold: bool = False,
+                        align: int = 1,
+                        auto_wrapping: bool = True,
+                        transform_y: float = -0.8,
                         anim_in: str = None):
-        """极简文本接口"""
+        """极简文本接口 (默认样式与剪映导入字幕一致，位置在画面下方)"""
         self._ensure_track(draft.TrackType.text, track_name)
-        style = TextStyle(size=font_size, color=color_rgb, bold=bold)
+        style = TextStyle(size=font_size, color=color_rgb, bold=bold, align=align, auto_wrapping=auto_wrapping)
+        clip = ClipSettings(transform_y=transform_y)
         start_us = tim(start_time)
         dur_us = tim(duration)
-        seg = draft.TextSegment(text, trange(start_us, dur_us), style=style)
+        seg = draft.TextSegment(text, trange(start_us, dur_us), style=style, clip_settings=clip)
         
         if anim_in:
             anim = _resolve_enum(TextIntro, anim_in)
@@ -256,6 +260,7 @@ class JyProject:
                 
         self.script.add_segment(seg, track_name)
         return seg
+
 
     def add_effect_simple(self, effect_name: str, start_time: str, duration: str, track_name: str = "EffectTrack"):
         """添加全局特效 (支持模糊匹配名称)"""
@@ -606,6 +611,65 @@ class JyProject:
 
         self.script.add_segment(seg, track_name)
 
+    def import_subtitles(self, srt_path: str, track_name: str = "TextTrack"):
+        """
+        从 SRT 文件导入字幕到项目中。
+        """
+        if not os.path.exists(srt_path):
+            print(f"❌ SRT file not found: {srt_path}")
+            return False
+
+        try:
+            import re
+            with open(srt_path, 'r', encoding='utf-8-sig') as f:
+                content = f.read()
+
+            # 简单的 SRT 解析正则 (匹配序号、时间轴、文本内容)
+            pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n((?:.+\n?)+?)(?=\n\d+\n|\n?$)', re.MULTILINE)
+            matches = pattern.findall(content)
+
+            if not matches:
+                # 尝试另一种常见的换行符兼容正则
+                pattern = re.compile(r'(\d+)\s+(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s+((?:.+[\r\n]?)+?)(?=[\r\n]+\d+[\r\n]+|[\r\n]?$)', re.MULTILINE)
+                matches = pattern.findall(content)
+
+            def srt_to_us(srt_time: str) -> int:
+                h, m, s_ms = srt_time.split(':')
+                s, ms = s_ms.split(',')
+                return (int(h) * 3600 + int(m) * 60 + int(s)) * 1000000 + int(ms) * 1000
+
+            count = 0
+            for _, start_str, end_str, text in matches:
+                start_us = srt_to_us(start_str.strip())
+                end_us = srt_to_us(end_str.strip())
+                duration_us = end_us - start_us
+                
+                clean_text = text.strip()
+                if clean_text:
+                    self.add_text_simple(clean_text, start_us, duration_us, track_name=track_name)
+                    count += 1
+            
+            print(f"✅ Imported {count} subtitle segments from {srt_path} to track '{track_name}'")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to import SRT: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def clear_text_tracks(self, track_name: str = None):
+        """
+        清除项目中的文本轨道。
+        """
+        if hasattr(self.script, 'tracks'):
+            original_tracks = self.script.tracks
+            if isinstance(original_tracks, list):
+                self.script.tracks = [t for t in original_tracks if not (getattr(t, 'track_type', None) == draft.TrackType.text and (not track_name or getattr(t, 'name', '') == track_name))]
+            elif isinstance(original_tracks, dict):
+                keys_to_del = [k for k, t in original_tracks.items() if getattr(t, 'track_type', None) == draft.TrackType.text and (not track_name or getattr(t, 'name', '') == track_name)]
+                for k in keys_to_del: del original_tracks[k]
+
+
 # --- 5. CLI Controller ---
 
 def cli():
@@ -626,6 +690,13 @@ def cli():
     export_parser = subparsers.add_parser("export-srt", help="Export subtitles from a draft to SRT file")
     export_parser.add_argument("--name", required=True, help="Draft Project Name")
     export_parser.add_argument("--output", help="Output SRT path (default: project_name.srt)")
+
+    # Command: import-srt (新)
+    import_parser = subparsers.add_parser("import-srt", help="Import subtitles from SRT file to a draft")
+    import_parser.add_argument("--name", required=True, help="Draft Project Name")
+    import_parser.add_argument("--srt", required=True, help="Input SRT path")
+    import_parser.add_argument("--track", default="TextTrack", help="Target text track name")
+    import_parser.add_argument("--clear", action="store_true", help="Clear existing text tracks before importing")
 
     # Command: create (Simple)
     create_parser = subparsers.add_parser("create", help="Quickly create a simple video draft")
@@ -672,8 +743,21 @@ def cli():
 
     elif args.command == "export-srt":
         p = JyProject(args.name)
-        output = args.output or f"{args.name}.srt"
+        # 默认输出到项目根目录 (pyJianYingDraft/)
+        if args.output:
+            output = args.output
+        else:
+            # 获取项目根目录 (skill_root 的上两级)
+            project_root = os.path.dirname(os.path.dirname(skill_root))
+            output = os.path.join(project_root, f"{args.name}.srt")
         p.export_subtitles(output)
+
+    elif args.command == "import-srt":
+        p = JyProject(args.name)
+        if args.clear:
+            p.clear_text_tracks(args.track)
+        p.import_subtitles(args.srt, track_name=args.track)
+        p.save()
 
     elif args.command == "create":
         p = JyProject(args.name)
