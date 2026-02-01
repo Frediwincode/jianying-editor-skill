@@ -10,7 +10,9 @@ description: 使用 pyJianYingDraft 库自动化创建、编辑和管理剪映 (
 
 ## 核心架构
 本 Skill 包含完整的项目参考手册和核心逻辑脚本：
-- **`references/`**: 包含项目的 `README.md` 和核心模块（`script_file.py`, `draft_folder.py`）的接口定义，供代理随时查阅 API。
+- **`references/`**: 包含项目的 `README.md` 和核心模块（`script_file.py`, `draft_folder.py`）的接口定义，以及以下模板：
+    - **`movie_commentary_template.py`**: 影视解说全自动模板（剪辑逻辑）。
+    - **`video_analysis_template.py`**: 视频 AI 深度分析模板（提取逻辑）。
 - **`scripts/`**: 封装了常用的批处理任务（模板替换、自动导出）。
 - **`tools/recording/`**: 专业录屏工具集，核心为 `recorder.py`，支持中文 GUI、音视频同步录制及用户操作轨迹采集（events.json）。
 - **`assets/`**: 包含演示用的测试素材（assets/readme_assets/tutorial/ 下有 video.mp4, audio.mp3 等），Agent 在创建 Demo 时**必须**优先使用这些素材，而非生成纯文本草稿。
@@ -93,7 +95,7 @@ python .agent/skills/jianying-editor/tools/recording/recorder.py
 1. **筛选素材**：从视频中挑选 8-12 个最关键、最能推动剧情的高光片段。
 2. **混合剪辑模式**：
    - **解说片段**：用于推进剧情，需要配上简短、有力的解说词。**请务必使用标点符号（逗号/句号）将长句拆分为短句，以便脚本自动断句，避免出现过长的字幕。**
-   - **原声片段**：用于展示角色的情绪爆发、经典台词或关键转折，此片段**不需要解说词**（text字段留空），保留视频原声以增强沉浸感。
+   - **原声片段**：用于展示角色的情绪爆发、经典台词或关键转折，此片段**不需要解说词，最好是有人物对话的片段**（text字段留空），保留视频原声以增强沉浸感。
 3. **时长控制**：片段总时长默认为 60 秒（或遵循用户指定时长）。
 
 ### 输出格式
@@ -107,3 +109,9 @@ python .agent/skills/jianying-editor/tools/recording/recorder.py
   ...
 ]
 ```
+## 进阶案例: 全自动影视解说
+本 Skill 提供了一个专门针对影视解说场景的参考脚本：`references/movie_commentary_template.py`。
+当用户需要从长视频生成解说短片时，Agent 应参考该脚本实现以下高级功能：
+1.  **分解字幕与遮罩**：自动在该片段底部添加黑色遮罩以覆盖原视频硬字幕。
+2.  **双轨增强 (HighlightTrack)**：对于无解说的原声片段，自动在上方轨道复制一份，方便用户保留人物对话原声。
+3.  **智能断句**：自动根据文案中的标点符号拆分字幕时间轴。
