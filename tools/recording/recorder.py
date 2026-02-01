@@ -213,8 +213,11 @@ class ProGuiRecorder:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         
-        self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-        self.process.wait()
+        self.log_file = os.path.join(self.output_dir, "ffmpeg_log.txt")
+        # Use a temporary file handle for the process
+        with open(self.log_file, "w", encoding="utf-8") as f:
+            self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT, env=env)
+            self.process.wait()
 
     def stop_recording(self):
         if not self.is_recording: return
@@ -235,26 +238,37 @@ class ProGuiRecorder:
         
         if self.process:
             try:
-                # 等待音频缓冲区刷新 (FFmpeg 音频编码有延迟)
-                time.sleep(0.5)
-                # 发送 'q' 让 FFmpeg 正常结束并写入尾部数据
-                self.process.stdin.write(b'q')
-                self.process.stdin.flush()
-                self.process.wait(timeout=15)
+                if self.process.poll() is None: # Still running
+                    time.sleep(0.5)
+                    self.process.stdin.write(b'q')
+                    self.process.stdin.flush()
+                    self.process.wait(timeout=5)
+                else:
+                    return_code = self.process.poll()
+                    print(f"⚠️ FFmpeg stopped early with code {return_code}")
+                    if os.path.exists(self.log_file):
+                        try:
+                            with open(self.log_file, "r", encoding="utf-8", errors="ignore") as f:
+                                err = f.read()
+                                print(f"[-] FFmpeg Last Logs:\n{err[-500:]}")
+                        except: pass
             except Exception as e:
                 print(f"⚠️ FFmpeg 停止异常: {e}")
-                self.process.kill()
+                try: self.process.kill()
+                except: pass
         
         try:
             with open(self.events_path, "w", encoding="utf-8") as f:
                 json.dump(self.events, f, indent=4)
         except: pass
         
-        print(f"✅ 录制成功: {self.output_path}")
-        print(f"✅ 录制成功: {self.output_path}")
-        
-        # 弹出后续操作对话框
-        self.show_post_action_dialog()
+        if os.path.exists(self.output_path) and os.path.getsize(self.output_path) > 100:
+            print(f"✅ 录制成功: {self.output_path}")
+            # 弹出后续操作对话框
+            self.show_post_action_dialog()
+        else:
+            messagebox.showerror("录制失败", "FFmpeg 未能生成有效的视频文件。请检查音频设备设置。")
+            self.status_label.config(text="录制失败", fg="#e74c3c")
 
     def show_post_action_dialog(self):
         """显示录制后操作选单"""
@@ -349,7 +363,10 @@ class ProGuiRecorder:
         self.root.mainloop()
 
 if __name__ == "__main__":
-    AUDIO_ID = "@device_cm_{33D9A762-90C8-11D0-BD43-00A0C911CE86}\\wave_{ABC9BEC4-A0C4-4D18-AB98-09084B41A52D}"
+    # 更新为您电脑上的真实设备名称
+    # 刚才通过 list_devices 探测到的立体声混音 ID
+    AUDIO_ID = "@device_cm_{33D9A762-90C8-11D0-BD43-00A0C911CE86}\\wave_{E2766CC5-17BF-4974-AA81-E3108DEF5092}"
+    
     # 可以接受路径作为保存目录
     out_dir = sys.argv[1] if len(sys.argv) > 1 else None
     recorder = ProGuiRecorder(out_dir, audio_device=AUDIO_ID)
