@@ -167,7 +167,7 @@ class JyProject:
         print(f"✅ Saved project: {self.name} to {self.root}")
 
     def add_media_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
-                       track_name: str = None):
+                       track_name: str = None, source_start: Union[str, int] = 0):
         """
         自动容错的媒体添加方法 (Auto-Clamp)
         支持视频/图片/音频自动分流。
@@ -181,8 +181,32 @@ class JyProject:
         if ext in ['.mp3', '.wav', '.aac', '.flac', '.m4a']:
             return self.add_audio_safe(media_path, start_time, duration, track_name or "AudioTrack")
         
-        # 默认为视频/图片
-        return self._add_video_safe(media_path, start_time, duration, track_name or "VideoTrack")
+        return self._add_video_safe(media_path, start_time, duration, track_name or "VideoTrack", source_start=source_start)
+
+    def add_clip(self, media_path: str, source_start: Union[str, int], duration: Union[str, int], 
+                 target_start: Union[str, int] = None, track_name: str = "VideoTrack"):
+        """
+        高层剪辑接口：从媒体指定位置裁剪指定长度，并放入轨道。
+        如果 target_start 为 None，则自动排在轨道末尾（追加模式）。
+        """
+        if target_start is None:
+            # 自动计算轨道当前末尾时间
+            target_start = self.get_track_duration(track_name)
+            
+        return self.add_media_safe(media_path, target_start, duration, track_name, source_start=source_start)
+
+    def get_track_duration(self, track_name: str) -> int:
+        """获取指定轨道当前的总时长（微秒）"""
+        tracks = self.script.tracks
+        iterator = tracks.values() if isinstance(tracks, dict) else (tracks if isinstance(tracks, list) else [])
+        for t in iterator:
+            if hasattr(t, 'name') and getattr(t, 'name') == track_name:
+                max_end = 0
+                for seg in t.segments:
+                    end = seg.target_timerange.start + seg.target_timerange.duration
+                    if end > max_end: max_end = end
+                return max_end
+        return 0
 
     def add_audio_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
                        track_name: str = "AudioTrack"):
@@ -207,7 +231,7 @@ class JyProject:
         return seg
 
     def _add_video_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
-                        track_name: str = "VideoTrack"):
+                        track_name: str = "VideoTrack", source_start: Union[str, int] = 0):
         self._ensure_track(draft.TrackType.video, track_name)
         
         try:
@@ -218,12 +242,13 @@ class JyProject:
             return None
 
         start_us = tim(start_time)
-        actual_duration = self._calculate_duration(duration, phys_duration)
+        src_start_us = tim(source_start)
+        actual_duration = self._calculate_duration(duration, phys_duration - src_start_us)
 
         seg = draft.VideoSegment(
             mat,
             target_timerange=trange(start_us, actual_duration),
-            source_timerange=trange(0, actual_duration) 
+            source_timerange=trange(src_start_us, actual_duration) 
         )
         self.script.add_segment(seg, track_name)
         return seg
