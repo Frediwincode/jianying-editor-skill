@@ -748,13 +748,11 @@ def cli():
 
     elif args.command == "export-srt":
         p = JyProject(args.name)
-        # 默认输出到项目根目录 (pyJianYingDraft/)
+        # 默认输出到当前运行目录 (项目根目录)
         if args.output:
             output = args.output
         else:
-            # 获取项目根目录 (skill_root 的上两级)
-            project_root = os.path.dirname(os.path.dirname(skill_root))
-            output = os.path.join(project_root, f"{args.name}.srt")
+            output = os.path.join(os.getcwd(), f"{args.name}.srt")
         p.export_subtitles(output)
 
     elif args.command == "import-srt":
