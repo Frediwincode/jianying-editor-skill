@@ -19,8 +19,8 @@ if sys.platform == 'win32':
 
 class ProGuiRecorder:
     def __init__(self, output_dir=None, audio_device=None):
-        # 默认保存到当前目录下的 recordings 文件夹，或者用户指定的目录
-        default_dir = os.path.join(os.getcwd(), "recordings")
+        # 默认保存到当前目录 (根目录)，或者用户指定的目录
+        default_dir = os.getcwd()
         self.output_dir = os.path.abspath(output_dir or default_dir)
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -49,7 +49,7 @@ class ProGuiRecorder:
         self.status_label.pack(pady=15)
         
         audio_status = "已开启" if audio_device else "已禁用"
-        self.info_label = tk.Label(self.main_frame, text=f"系统音频录制: {audio_status}\n保存至: recordings/", 
+        self.info_label = tk.Label(self.main_frame, text=f"系统音频录制: {audio_status}\n保存至: 项目根目录/", 
                                   fg="#bdc3c7", bg="#2c3e50", font=("Microsoft YaHei", 8))
         self.info_label.pack(pady=2)
         

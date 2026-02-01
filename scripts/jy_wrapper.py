@@ -350,9 +350,13 @@ class JyProject:
         """
         根据录制轨迹自动应用缩放关键帧
         """
+        if video_segment is None:
+            print("⚠️ Cannot apply smart zoom: video_segment is None.")
+            return
+
         try:
-            from .smart_zoomer import apply_smart_zoom
-            apply_smart_zoom(self, video_segment, events_json_path, zoom_scale=zoom_scale)
+            import smart_zoomer
+            smart_zoomer.apply_smart_zoom(self, video_segment, events_json_path, zoom_scale=zoom_scale)
         except ImportError:
             import json
             if not os.path.exists(events_json_path):
@@ -771,7 +775,10 @@ def cli():
         p = JyProject(args.name)
         # 查找或添加视频
         seg = p.add_media_safe(args.video, "0s")
-        p.apply_smart_zoom(seg, args.json, zoom_scale=args.scale)
+        if seg:
+            p.apply_smart_zoom(seg, args.json, zoom_scale=args.scale)
+        else:
+            print(f"❌ Failed to load video: {args.video}")
         p.save()
         
     else:
