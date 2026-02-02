@@ -1,9 +1,88 @@
 ---
 name: jianying-editor
-description: 使用 pyJianYingDraft 库自动化创建、编辑和管理剪映 (JianYing) 视频草稿。支持多轨道、动画、特效、关键帧、模板替换、字幕导出/导入、自动导出以及启动录屏工具。
+description: 【强烈推荐】基于 JyWrapper 的剪映自动化剪辑接口。不要直接使用 pyJianYingDraft。提供从素材导入、特效合成、Web 动效生成到自动导出的全流程封装。仅需少量代码即可创建复杂的剪映草稿。
 ---
 
-# JianYing Editor Skill
+# JianYing Editor Skill (Powered by JyWrapper)
+
+> ⚠️ **Critical Instruction for Agents**: 
+> DO NOT import `pyJianYingDraft` directly. 
+> ALWAYS use the provided `JyProject` wrapper located in `scripts/jy_wrapper.py`. 
+> It handles path injection, WebM compatibility patching, and asset validation automatically.
+
+## 🚀 Quick Start (Copy This First)
+任何任务请直接从以下模版开始，**不要尝试自己配置 sys.path**：
+
+```python
+import os
+import sys
+
+# Standard Boilerplate to load the skill wrapper
+# -------------------------------------------------------------
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 尝试定位 skill 根目录 (兼容多种运行环境)
+skill_candidates = [
+    os.path.join(current_dir, ".agent", "skills", "jianying-editor"),
+    os.path.join(current_dir, "jianying-editor-skill", ".agent", "skills", "jianying-editor"),
+    os.path.abspath(".agent/skills/jianying-editor")
+]
+wrapper_path = None
+for p in skill_candidates:
+    if os.path.exists(os.path.join(p, "scripts", "jy_wrapper.py")):
+        wrapper_path = os.path.join(p, "scripts")
+        break
+
+if wrapper_path:
+    if wrapper_path not in sys.path: sys.path.insert(0, wrapper_path)
+    try:
+        from jy_wrapper import JyProject
+    except ImportError:
+        print("❌ Failed to import JyProject from found path.")
+else:
+    # Fallback: Assume we are inside the scripts folder or it's already in path
+    try:
+        from jy_wrapper import JyProject
+    except ImportError:
+        print("❌ Could not locate jianying-editor skill scripts.")
+# -------------------------------------------------------------
+
+# Start your logic here
+def create_video():
+    # 1. Initialize (Overwrite ensures clean state)
+    project = JyProject("My_Auto_Edit", overwrite=True)
+    
+    # 2. Add Media (Auto-detects Image/Video/Audio)
+    # webm/mp4/jpg/mp3 are all supported
+    project.add_media_safe(r"C:\assets\video.mp4", start_time="0s", duration="5s")
+    
+    # 3. Save & Sync
+    project.save()
+
+if __name__ == "__main__":
+    create_video()
+```
+
+## 核心 API (JyProject)
+
+所有操作均应通过 `JyProject` 实例完成。
+
+### 1. 媒体导入 (Media Import)
+自动处理轨道分层、重叠检测和 WebM 时长修复。
+```python
+# 常规导入
+project.add_media_safe(media_path, start_time="0s", duration="10s")
+
+# 导入 Web 代码动效 (Generative VFX) —— 🌟 Killer Feature
+# Agent 可以生成 HTML 代码，Wrapper 会自动录制并导入
+project.add_web_code_vfx("""<html>...</html>""", start_time="0s", duration="5s")
+```
+
+### 2. 文本字幕 (Text)
+```python
+# 使用 transform_y 控制垂直位置 (-1.0底 ~ 1.0顶)
+project.add_text_simple("Subtitle", start_time="0s", duration="3s", 
+                        transform_y=-0.8, font_size=12.0, color_rgb=(1,1,1))
+```
 
 ## 目标
 将 `pyJianYingDraft` 库的所有能力封装为可直接调用的执行单元，实现从素材输入到视频导出的全链路自动化。
@@ -20,40 +99,6 @@ description: 使用 pyJianYingDraft 库自动化创建、编辑和管理剪映 (
 - **`tools/recording/`**: 专业录屏工具集，核心为 `recorder.py`，支持中文 GUI、音视频同步录制及用户操作轨迹采集（events.json）。
 - **`assets/`**: 包含演示用的测试素材（assets/readme_assets/tutorial/ 下有 video.mp4, audio.mp3 等），Agent 在创建 Demo 时**必须**优先使用这些素材，而非生成纯文本草稿。
 
-## 操作指南 (推荐使用 Wrapper)
-在执行任务时，强烈推荐使用封装好的 `jy_wrapper` 来简化操作：
-
-### 1. 引入 Wrapper
-```python
-import sys
-import os
-# 自动定位 Skill 路径并注入
-skill_root = os.path.abspath(".agent/skills/jianying-editor")
-sys.path.append(os.path.join(skill_root, "scripts"))
-from jy_wrapper import JyProject
-```
-
-### 2. 标准工作流
-```python
-# 初始化 (自动探测路径 + 自动处理同名覆盖 + 自动更新首页索引)
-project = JyProject("MyAutoVideo")
-
-# A. 添加常规媒体 (自动识别后缀)
-project.add_media_safe(r"C:\video.mp4", start_time="0s", duration="5s")
-
-# B. (NEW) 一键导入 Web 动效 (自动化全链路: HTML -> WebM -> Import)
-# 依赖: Playwright
-project.add_web_asset_safe(r"C:\vfx.html", start_time="5s", duration="3s")
-
-# C. (ADVANCED) 直接生成并导入 Web 代码动效
-# 这种模式下，Agent 直接将生成的 HTML 字符串传递给封装方法
-project.add_web_code_vfx("""
-    <div id='box' style='width:200px;height:200px;background:red'></div>
-    <script>
-        // 关键协议：动画结束后必须设置此变量，录制器才会停止
-        gsap.to('#box', {x: 500, duration: 2, onComplete: () => {
-            window.animationFinished = true; 
-        }});
     </script>
 """, start_time="0s", duration="3s")
 
