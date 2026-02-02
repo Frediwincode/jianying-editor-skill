@@ -20,10 +20,11 @@ import sys
 # -------------------------------------------------------------
 # 必选：这段代码负责自动定位 Skill 路径，请原样复制到你的脚本开头
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 扩展探测逻辑：覆盖 Antigravity(.agent), Trae(.trae), 以及通用(skills)
+# 扩展探测逻辑：覆盖 Antigravity(.agent), Trae(.trae), Claude(.claude), 以及通用(skills)
 skill_candidates = [
     os.path.join(current_dir, ".agent", "skills", "jianying-editor"),
     os.path.join(current_dir, ".trae", "skills", "jianying-editor"),
+    os.path.join(current_dir, ".claude", "skills", "jianying-editor"),
     os.path.join(current_dir, "skills", "jianying-editor"),
     os.path.join(current_dir, "jianying-editor-skill", ".agent", "skills", "jianying-editor"),
     os.path.abspath(".agent/skills/jianying-editor")

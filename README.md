@@ -19,6 +19,11 @@ git clone https://github.com/luoluoluo22/jianying-editor-skill.git .agent/skills
 git clone https://github.com/luoluoluo22/jianying-editor-skill.git .trae/skills/jianying-editor
 ```
 
+**🧠 Claude Code:**
+```bash
+git clone https://github.com/luoluoluo22/jianying-editor-skill.git .claude/skills/jianying-editor
+```
+
 **💻 Cursor / VSCode / 通用:**
 ```bash
 # 推荐安装到根目录的 skills 文件夹
