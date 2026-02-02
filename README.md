@@ -5,10 +5,24 @@
 
 ## 🚀 快速开始 (Quick Start)
 
-### 1. 安装 Skill
-请在您的项目根目录下，打开终端 (Terminal) 运行以下命令：
+### 1. 安装 Skill (Install)
+
+请根据您使用的 AI 编辑器 (IDE)，选择对应的安装命令，以确保 Skill 能被自动识别：
+
+**🤖 Antigravity / Gemini Code Assist:**
 ```bash
 git clone https://github.com/luoluoluo22/jianying-editor-skill.git .agent/skills/jianying-editor
+```
+
+**🚀 Trae IDE:**
+```bash
+git clone https://github.com/luoluoluo22/jianying-editor-skill.git .trae/skills/jianying-editor
+```
+
+**💻 Cursor / VSCode / 通用:**
+```bash
+# 推荐安装到根目录的 skills 文件夹
+git clone https://github.com/luoluoluo22/jianying-editor-skill.git skills/jianying-editor
 ```
 
 ### 2. 在 AI 对话中使用
