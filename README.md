@@ -1,6 +1,8 @@
 # JianYing Editor Skill for Antigravity
 ![封面图](assets/readme_assets/cover.png)
 
+### 📺 [点击观看 B 站保姆级安装教程](https://www.bilibili.com/video/BV1hLzCBzEDS/?vd_source=0eaa8407ec8edd1e9f2a0abf6e126bf6)
+
 这是一个为 **AI Agent (Trae, Antigravity, Claude Code, Cursor)** 设计的通用专业级 Skill。它旨在赋予 AI“手眼”，使其能通过 Python 代码全自动生成、编辑和导出剪映（JianYing/CapCut 中国版）视频草稿。
 
 不仅支持基础剪辑，更支持**网页动效生成 (Web-to-Video)** 和 **生成式 VFX**。
@@ -38,9 +40,12 @@ git clone https://github.com/luoluoluo22/jianying-editor-skill.git skills/jianyi
 > "请使用 jianying-editor 帮我创建一个名为 'MyDemo' 的剪映草稿，导入 output.mp4，并在开场添加一个标题。"
 
 
-### 3. 查看示例代码 (Examples)
-如果你是第一次使用，建议直接参考仓库中的标准示例：
-- **[examples/simple_clip_demo.py](examples/simple_clip_demo.py)**: 包含初始化、导入视频、加音乐、加字幕的完整流程。让 Agent 学习这个文件是上手的最快方式。
+### 3. 🛠️ 资源下载与版本准备 (Essential Resources)
+⚠️ **重要提示**：本 Skill 的自动导出功能深度依赖 **剪映 5.9** (或更低版本)。
+新版本 (6.0+) 存在大量弹窗干扰，会导致自动化脚本失效。
+
+⬇️ **[点击下载 剪映专业版 5.9 (夸克网盘)](https://pan.quark.cn/s/81566e9c6e08)**
+*(下载后请覆盖安装或卸载旧版后安装)*
 
 ### 4. 🗣️ 试试这样问 AI (示例)
 
