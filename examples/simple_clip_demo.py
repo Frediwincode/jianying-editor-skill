@@ -65,11 +65,15 @@ def main():
     print("🎵 Adding Music...")
     project.add_media_safe(bgm_path, start_time=0, duration="5s", track_name="Audio")
 
-    # 5. 添加字幕
+    # 5. 添加字幕 (带入场动画)
     # transform_y: 垂直位置，-1.0 是底部，1.0 是顶部，0 是中间
-    print("📝 Adding Text...")
+    # anim_in: 入场动画。支持直接使用中文名称 (如 "复古打字机", "弹入", "向右滑动")
+    # 提示: 你可以使用 `python scripts/asset_search.py "打字"` 来查找可用的动画名
+    print("📝 Adding Text with Animation...")
     project.add_text_simple("Hello JianYing API!", start_time="1s", duration="3s", 
-                           transform_y=-0.7, color_rgb=(1, 1, 0)) # 黄色字幕
+                           transform_y=-0.7, color_rgb=(1, 1, 0), # 黄色字幕
+                           anim_in="复古打字机") 
+
 
     # 6. 保存项目
     # 这会生成草稿文件并自动刷新剪映首页列表
