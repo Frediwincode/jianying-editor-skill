@@ -13,7 +13,10 @@ description: 使用 pyJianYingDraft 库自动化创建、编辑和管理剪映 (
 - **`references/`**: 包含项目的 `README.md` 和核心模块（`script_file.py`, `draft_folder.py`）的接口定义，以及以下模板：
     - **`movie_commentary_template.py`**: 影视解说全自动模板（剪辑逻辑）。
     - **`video_analysis_template.py`**: 视频 AI 深度分析模板（提取逻辑）。
-- **`scripts/`**: 封装了常用的批处理任务（模板替换、自动导出）。
+    - **`full_feature_showcase.py`**: (NEW) 全面功能演示脚本，涵盖剪辑、特效、关键帧及自动分层字幕。
+- **`data/`**: (NEW) 结构化的资产数据库（CSV 格式），包含数千条动画、特效、滤镜和转场标识符。
+- **`scripts/`**: 封装了常用的批处理任务和高效的资产搜索脚本：
+    - **`asset_search.py`**: 资产搜索引擎，支持通过关键词快速检索 ID。
 - **`tools/recording/`**: 专业录屏工具集，核心为 `recorder.py`，支持中文 GUI、音视频同步录制及用户操作轨迹采集（events.json）。
 - **`assets/`**: 包含演示用的测试素材（assets/readme_assets/tutorial/ 下有 video.mp4, audio.mp3 等），Agent 在创建 Demo 时**必须**优先使用这些素材，而非生成纯文本草稿。
 
@@ -35,21 +38,38 @@ from jy_wrapper import JyProject
 # 初始化 (自动探测路径 + 自动处理同名覆盖)
 project = JyProject("MyAutoVideo")
 
-# 添加媒体 (自动容错时长，自动创建轨道)
-project.add_media_safe(r"C:\path\to\video.mp4", start_time="0s", duration="5s")
+# 添加媒体 (智能分流：无需指定 track_type，自动识别视频/音频后缀)
+project.add_media_safe(r"C:\video.mp4", start_time="0s", duration="5s")
+project.add_media_safe(r"C:\bgm.mp3", start_time="0s", track_name="BGM_Track")
 
-# 添加文本 (扁平化参数，自动映射动画)
+# 添加文本 (扁平化参数，支持自动分层防止重叠)
+# 注意：位置控制请使用 transform_y (0.0=中心, -1.0=底部, 1.0=顶部) 而非 position
 project.add_text_simple("Hello Antigravity", start_time="1s", duration="3s", 
-                        font_size=20.0, color_rgb=(1.0, 0.0, 0.0), anim_in="复古打字机")
+                        font_size=20.0, color_rgb=(1.0, 0.0, 0.0), 
+                        transform_y=-0.8, anim_in="复古打字机")
 
-# 保存
+# 保存 (内置自动错误检查与部分自愈)
 project.save()
 ```
 
-## 关联手册说明
-- **`references/AVAILABLE_ASSETS.md`**: 包含所有可用的动画、特效、转场的枚举名称列表 (供 AI 查阅)。
-- `references/README.md`:  项目详细功能清单。
-- `references/api_summary.txt`: 核心类参考。
+## 核心能力：生成式剪辑 (Generative Editing)
+本 Skill 不依赖死板的模板，而是要求 Agent 像一个**人类剪辑师**一样思考。当用户提出模糊需求（如“做一个赛博朋克风格的视频”）时，请遵循以下**思维链 (Chain of Thought)**：
+
+1.  **概念拆解 (Deconstruct)**:
+    *   *Agent 思考*: "赛博朋克" = 霓虹色 (Neon) + 故障风 (Glitch) + 科技感 (Tech) + 快节奏 (Fast).
+2.  **语义检索 (Semantic Search)**:
+    *   使用 `asset_search.py` 搜索拆解出的关键词。
+    *   `python .../asset_search.py "故障 霓虹" -c filters` -> 找到 `复古DV`, `故障_III`.
+    *   `python .../asset_search.py "科技 扫描" -c transitions` -> 找到 `全息扫描`.
+3.  **动态组合 (Compose)**:
+    *   在 `JyProject` 代码中将通过 ID 组合起来，构建出独一无二的草稿。
+
+### 资产检索引擎
+不要猜测资产 ID，始终先搜索验证：
+```bash
+python .agent/skills/jianying-editor/scripts/asset_search.py "<关键词>" [-c 分类]
+```
+分类代码：`filters` (滤镜), `video_scene_effects` (特效), `transitions` (转场), `text_animations` (文字动画).
 
 ## CLI 诊断与快速使用
 Skill 的 Wrapper 脚本支持通过命令行进行诊断和草稿管理：

@@ -155,23 +155,141 @@ class JyProject:
         self.name = name
         
         # 支持打开现有项目或创建新项目
-        if self.df.has_draft(name):
+        has_draft = self.df.has_draft(name)
+        
+        # 损坏检测与自愈 (Self-Healing)
+        if has_draft:
+            draft_path = os.path.join(self.root, name)
+            content_path = os.path.join(draft_path, "draft_content.json")
+            meta_path = os.path.join(draft_path, "draft_meta_info.json")
+            
+            # 如果缺少关键文件，视为损坏
+            if not os.path.exists(content_path) or not os.path.exists(meta_path):
+                print(f"⚠️ Corrupted draft detected (missing json): {name}")
+                print(f"🧹 Auto-healing: Removing corrupted folder...")
+                try:
+                    shutil.rmtree(draft_path, ignore_errors=True)
+                    has_draft = False
+                except Exception as e:
+                    print(f"❌ Failed to cleanup corrupted draft: {e}")
+                    # 如果删不掉（权限/占用），只能尝试换个名字或者强制覆盖?
+                    # 这里如果是 overwrite=True 模式，后面 create_draft 会再次尝试处理
+                    pass
+
+        if has_draft and not overwrite:
             print(f"📖 Loading existing project: {name}")
-            self.script = self.df.load_template(name)
+            try:
+                self.script = self.df.load_template(name)
+            except Exception as e:
+                print(f"❌ Load failed ({e}), forcing recreate...")
+                self.script = self.df.create_draft(name, width, height, allow_replace=True)
         else:
             print(f"🆕 Creating new project: {name}")
             self.script = self.df.create_draft(name, width, height, allow_replace=overwrite)
 
     def save(self):
-        self.script.save()
-        print(f"✅ Saved project: {self.name} to {self.root}")
+        """
+        保存草稿并执行交付前质检 (Pre-Delivery Checklist)。
+        输出详细的 JSON 格式诊断报告，供 Agent 读取。
+        """
+        import json
+        
+        # --- 1. Pre-Delivery Checklist (质检) ---
+        diagnostics = {
+            "validations": [],
+            "warnings": [],
+            "stats": {}
+        }
+        
+        # 1.1 检查所有媒体路径是否真实存在
+        missing_files = []
+        if hasattr(self.script, 'materials'):
+            media_lists = [self.script.materials.videos, self.script.materials.audios]
+            for m_list in media_lists:
+                for m in m_list:
+                    path = getattr(m, 'path', None)
+                    if isinstance(m, dict):
+                        path = m.get('path')
+                    
+                    if path and not os.path.exists(path):
+                        missing_files.append(path)
+        
+        if missing_files:
+            diagnostics['validations'].append({"status": "FAIL", "msg": f"Missing media files: {len(missing_files)}", "details": missing_files})
+        else:
+            diagnostics['validations'].append({"status": "PASS", "msg": "Media paths check"})
+
+        # 1.2 统计轨道信息与音量检查
+        total_duration = 0
+        audio_tracks_high_vol = 0
+        bgm_candidates = []
+        
+        tracks = self.script.tracks
+        iterator = tracks.values() if isinstance(tracks, dict) else (tracks if isinstance(tracks, list) else [])
+        
+        track_stats = {"video": 0, "audio": 0, "text": 0, "effect": 0}
+        
+        for t in iterator:
+            t_type = getattr(t, 'track_type', None)
+            
+            # 统计时长
+            for seg in t.segments:
+                end_time = seg.target_timerange.start + seg.target_timerange.duration
+                if end_time > total_duration:
+                    total_duration = end_time
+            
+            # 统计轨道数
+            type_map = {
+                draft.TrackType.video: "video", draft.TrackType.audio: "audio",
+                draft.TrackType.text: "text", draft.TrackType.effect: "effect"
+            }
+            if t_type in type_map:
+                track_stats[type_map[t_type]] += 1
+                
+            # 检查音频音量 (假设 AudioSegment 有 volume 属性，pyJianYingDraft 目前可能存储在 material 或 extra_material_refs)
+            # 由于库的封装复杂，这里做简化检查：如果 Audio Track 数量 > 1，警告需检查混音
+            if t_type == draft.TrackType.audio:
+                # 简单启发式：如果轨道名包含 BGM 但没显式设置音量 (通常需要手动确认)
+                if "BGM" in getattr(t, 'name', '').upper():
+                    bgm_candidates.append(getattr(t, 'name', 'Unknown'))
+
+        if len(bgm_candidates) > 0 and track_stats['audio'] > 1:
+             diagnostics['warnings'].append("Detected BGM track with other audio tracks. Please ensure BGM volume is lowered (e.g., -10dB).")
+
+        diagnostics['stats']['duration_us'] = total_duration
+        diagnostics['stats']['duration_formatted'] = format_srt_time(total_duration).split(',')[0]
+        diagnostics['stats']['tracks'] = track_stats
+
+        # --- 2. Save ---
+        try:
+            self.script.save()
+            save_status = "SUCCESS"
+        except Exception as e:
+            save_status = f"ERROR: {str(e)}"
+        
+        # --- 3. Output Report ---
+        draft_path = os.path.join(self.root, self.name)
+        
+        report = {
+            "status": save_status,
+            "draft_path": draft_path,
+            "draft_name": self.name,
+            "diagnostics": diagnostics
+        }
+        
+        print("\n=== JianYing Draft Build Report ===")
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        print("===================================\n")
 
     def add_media_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
-                       track_name: str = None, source_start: Union[str, int] = 0):
+                       track_name: str = None, source_start: Union[str, int] = 0, **kwargs):
         """
         自动容错的媒体添加方法 (Auto-Clamp)
         支持视频/图片/音频自动分流。
         """
+        if kwargs:
+            print(f"⚠️ Warning: Ignored extra args in add_media_safe: {list(kwargs.keys())}")
+
         if not os.path.exists(media_path):
             print(f"❌ Media Missing: {media_path}")
             return None
@@ -184,16 +302,15 @@ class JyProject:
         return self._add_video_safe(media_path, start_time, duration, track_name or "VideoTrack", source_start=source_start)
 
     def add_clip(self, media_path: str, source_start: Union[str, int], duration: Union[str, int], 
-                 target_start: Union[str, int] = None, track_name: str = "VideoTrack"):
+                 target_start: Union[str, int] = None, track_name: str = "VideoTrack", **kwargs):
         """
         高层剪辑接口：从媒体指定位置裁剪指定长度，并放入轨道。
-        如果 target_start 为 None，则自动排在轨道末尾（追加模式）。
         """
         if target_start is None:
             # 自动计算轨道当前末尾时间
             target_start = self.get_track_duration(track_name)
             
-        return self.add_media_safe(media_path, target_start, duration, track_name, source_start=source_start)
+        return self.add_media_safe(media_path, target_start, duration, track_name, source_start=source_start, **kwargs)
 
     def get_track_duration(self, track_name: str) -> int:
         """获取指定轨道当前的总时长（微秒）"""
@@ -209,9 +326,12 @@ class JyProject:
         return 0
 
     def add_audio_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
-                       track_name: str = "AudioTrack"):
+                       track_name: str = "AudioTrack", **kwargs):
         self._ensure_track(draft.TrackType.audio, track_name)
         
+        if kwargs:
+            print(f"⚠️ Warning: Ignored extra args in add_audio_safe: {list(kwargs.keys())}")
+
         try:
             mat = draft.AudioMaterial(media_path)
             phys_duration = mat.duration
@@ -231,7 +351,7 @@ class JyProject:
         return seg
 
     def _add_video_safe(self, media_path: str, start_time: Union[str, int], duration: Union[str, int] = None, 
-                        track_name: str = "VideoTrack", source_start: Union[str, int] = 0):
+                        track_name: str = "VideoTrack", source_start: Union[str, int] = 0, **kwargs):
         self._ensure_track(draft.TrackType.video, track_name)
         
         try:
@@ -270,21 +390,68 @@ class JyProject:
                         align: int = 1,
                         auto_wrapping: bool = True,
                         transform_y: float = -0.8,
-                        anim_in: str = None):
-        """极简文本接口 (默认样式与剪映导入字幕一致，位置在画面下方)"""
+                        anim_in: str = None,
+                        **kwargs):
+        """
+        极简文本接口 (增强版 V2)
+        特点:
+        1. 容错: 自动忽略不支持的参数 (如 position) 并打印警告。
+        2. 自动分层: 如果轨道上有重叠，自动创建新轨道 (TextTrack_L2, _L3...)。
+        """
+        # --- 1. 参数清洗与兼容 (Arguments Sanitization) ---
+        if kwargs:
+            print(f"⚠️ Warning: Ignored unsupported args in add_text_simple: {list(kwargs.keys())}")
+            
+            # 尝试兼容 position 参数 (假设用户传入的是 (x, y) 归一化坐标, 中心为0)
+            if 'position' in kwargs:
+                pos = kwargs['position']
+                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                    # 如果这只是别名，我们可以尝试应用它 (这里仅做简单的 Y 轴覆盖)
+                    # 假设用户想用 position 控制位置，优先权高于 transform_y
+                    # 注意: 剪映坐标系通常 Y向上为正? 还是向下? 
+                    # 默认 transform_y=-0.8 是在下方。
+                    pass
+
         self._ensure_track(draft.TrackType.text, track_name)
+        
         style = TextStyle(size=font_size, color=color_rgb, bold=bold, align=align, auto_wrapping=auto_wrapping)
         clip = ClipSettings(transform_y=transform_y)
+        
         start_us = tim(start_time)
         dur_us = tim(duration)
+        
         seg = draft.TextSegment(text, trange(start_us, dur_us), style=style, clip_settings=clip)
         
         if anim_in:
             anim = _resolve_enum(TextIntro, anim_in)
             if anim: seg.add_animation(anim)
-                
-        self.script.add_segment(seg, track_name)
-        return seg
+        
+        # --- 2. 自动分层 (Auto-Layering) ---
+        # 尝试添加到指定轨道，如果失败则尝试寻找/创建空闲轨道
+        max_retries = 5
+        current_track_name = track_name
+        
+        for i in range(max_retries):
+            try:
+                self._ensure_track(draft.TrackType.text, current_track_name)
+                self.script.add_segment(seg, current_track_name)
+                if i > 0:
+                    print(f"🛡️ Auto-Layering: Segment overlapping on '{track_name}', moved to '{current_track_name}'")
+                return seg
+            except Exception as e:
+                # 检查是否是重叠错误 (通过错误信息字符串匹配，因为 pyJianYingDraft 可能没有导出特定的 Exception 类)
+                err_msg = str(e).lower()
+                if "overlap" in err_msg:
+                    # 尝试下一层
+                    current_track_name = f"{track_name}_L{i+2}"
+                    continue
+                else:
+                    # 其他错误直接抛出
+                    print(f"❌ Error adding text: {e}")
+                    raise e
+                    
+        print(f"❌ Failed to add text after {max_retries} layering attempts.")
+        return None
 
 
     def add_effect_simple(self, effect_name: str, start_time: str, duration: str, track_name: str = "EffectTrack"):
