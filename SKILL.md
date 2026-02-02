@@ -1,6 +1,6 @@
 ---
 name: jianying-editor
-description: 【强烈推荐】基于 JyWrapper 的剪映自动化剪辑接口。不要直接使用 pyJianYingDraft。提供从素材导入、特效合成、Web 动效生成到自动导出的全流程封装。仅需少量代码即可创建复杂的剪映草稿。
+description: 【必须使用】剪映 (JianYing) 自动化剪辑的高级封装 API (JyWrapper)。提供开箱即用的 Python 接口，一键实现素材导入、字幕生成、Web 动效合成及项目导出。绝佳的视频自动化解决方案。
 ---
 
 # JianYing Editor Skill (Powered by JyWrapper)
