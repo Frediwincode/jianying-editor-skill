@@ -7,7 +7,20 @@ import sys
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
-# --- 扩展: 常见同义词映射库 (Synonym Dictionary) ---
+# --- 扩展: 常见同义词映射库 ---
+# 用于反向推导 Enum Key
+EFFECT_SYNONYMS = {
+    "typewriter": ["打字机", "字幕", "typing", "复古打字机"],
+    "fade": ["渐隐", "渐显", "黑场", "白场", "fade_in", "fade_out"],
+    "glitch": ["故障", "干扰", "燥波", "雪花"],
+    "zoom": ["拉近", "拉远", "缩放", "变焦"],
+    "shake": ["振动", "摇晃", "抖动"],
+    "blur": ["模糊", "虚化"],
+    "glow": ["发光", "辉光", "霓虹"],
+    "retro": ["复古", "胶片", "怀旧", "DV"],
+    "dissolve": ["叠化", "溶解", "混合"],
+}
+
 SYNONYMS = {
     # 常用英文 -> 中文
     "dissolve": ["叠化", "溶解", "混合"],
@@ -34,40 +47,36 @@ SYNONYMS = {
 }
 
 def expand_query_with_synonyms(query):
-    """
-    将用户的英文查询词扩展为中文同义词列表。
-    例如: "glitch" -> ["glitch", "故障", "干扰", "燥波", "雪花"]
-    """
+    """扩展查询词"""
     terms = query.lower().split()
     expanded_terms = set(terms)
-    
     for term in terms:
-        # 直接匹配
         if term in SYNONYMS:
             expanded_terms.update(SYNONYMS[term])
-        # 模糊匹配 (如果 term 是 synonym 的一部分)
         else:
             for key, values in SYNONYMS.items():
-                if term in key:  # 比如搜 "typewrite" 匹配 "typewriter"
+                if term in key:
                     expanded_terms.update(values)
-                    
     return list(expanded_terms)
 
+def get_enum_key_from_ident(ident):
+    """尝试从中文标识符反推英文 Enum Key"""
+    ident_lower = ident.lower()
+    for key, synonyms in EFFECT_SYNONYMS.items():
+        if key in ident_lower: return key
+        for syn in synonyms:
+            if syn in ident_lower:
+                return key
+    return ""
+
 def search_assets(query, category=None, limit=20):
-    """
-    在 CSV 数据中搜索资产。
-    query: 搜索关键词
-    """
+    """搜索资产"""
     results = []
-    
-    # 1. 扩展查询词
     search_terms = expand_query_with_synonyms(query)
-    # print(f"DEBUG: Searching for terms: {search_terms}")
     
     files_to_search = []
     if category:
-        if not category.endswith('.csv'):
-            category += '.csv'
+        if not category.endswith('.csv'): category += '.csv'
         files_to_search = [category]
     else:
         if os.path.exists(DATA_DIR):
@@ -78,41 +87,25 @@ def search_assets(query, category=None, limit=20):
 
     for filename in files_to_search:
         filepath = os.path.join(DATA_DIR, filename)
-        if not os.path.exists(filepath):
-            continue
+        if not os.path.exists(filepath): continue
             
         with open(filepath, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # 匹配标识符、描述或分类
-                # 构造一个宽泛的搜索文本
                 target_text = (row.get('identifier', '') + " " + 
                                row.get('description', '') + " " + 
                                row.get('category', '')).lower()
                 
-                # 只要任何一个同义词命中即可 (OR logic for synonyms)
-                # 但如果是多词查询 "tech glitch"，我们可能希望是 AND 逻辑?
-                # 为了简单起见，我们假设 search_terms 里的词，只要命中一个就算相关。
-                # 但为了精准，我们优先匹配原始 query。
-                
-                # 评分逻辑:
-                # 1. 精确包含原始 query: 100分
-                # 2. 包含任意同义词: 10分
-                
                 score = 0
-                if query.lower() in target_text:
-                    score += 100
-                
+                if query.lower() in target_text: score += 100
                 for term in search_terms:
-                    if term in target_text:
-                        score += 10
+                    if term in target_text: score += 10
                 
                 if score > 0:
                     row['score'] = score
                     row['source_file'] = filename
                     results.append(row)
 
-    # 按分数排序
     results.sort(key=lambda x: x['score'], reverse=True)
     return results[:limit]
 
@@ -121,47 +114,45 @@ def format_results(results):
         return "❌ 未找到匹配项。尝试使用更简单的中文关键词。"
     
     output = []
-    # 增加 Source 列，方便知道是哪个分类里的
-    output.append(f"{'Identifier':<30} | {'Category':<15} | {'Source'}")
-    output.append("-" * 70)
+    # 明确告诉 Agent: 这些中文名就是可以直接用的 ID
+    header = f"{'Identifier':<25} | {'Category':<15} | {'API Key (Use This)':<20} | {'Source'}"
+    output.append(header)
+    output.append("-" * len(header))
+    
     for r in results:
-        # 截断过长的 identifier
         ident = r.get('identifier', 'N/A')
-        if len(ident) > 28: ident = ident[:25] + "..."
+        display_ident = ident
+        if len(display_ident) > 23: display_ident = display_ident[:20] + "..."
         
         cat = r.get('category', 'N/A')[:15]
         src = r.get('source_file', '').replace('.csv', '')
         
-        output.append(f"{ident:<30} | {cat:<15} | {src}")
+        enum_key = get_enum_key_from_ident(ident)
+        if not enum_key:
+            enum_key = ident  # Fallback to Chinese Key
+        
+        if len(enum_key) > 18: enum_key = enum_key[:15] + "..."
+
+        output.append(f"{display_ident:<25} | {cat:<15} | {enum_key:<20} | {src}")
         
     return "\n".join(output)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="剪映资产搜索工具 (智能双语版)")
-    parser.add_argument("query", nargs="?", default=None, help="搜索关键词 (支持中英文、同义词)")
-    parser.add_argument("-c", "--category", help="限定分类 (例如: filters, text_animations)")
-    parser.add_argument("-l", "--limit", type=int, default=20, help="返回结果数量限制")
-    parser.add_argument("--list", action="store_true", help="列出所有可用分类及其数量")
+    parser.add_argument("query", nargs="?", default=None, help="搜索关键词")
+    parser.add_argument("-c", "--category", help="限定分类")
+    parser.add_argument("-l", "--limit", type=int, default=20, help="数量限制")
+    parser.add_argument("--list", action="store_true", help="列出分类")
     
     args = parser.parse_args()
     
     if args.list:
-        # 显示分类摘要
         print("=== 剪映资产数据库概览 ===")
-        print(f"{'分类文件名':<30} | {'资产数量'}")
-        print("-" * 50)
-        total = 0
         if os.path.exists(DATA_DIR):
             for filename in sorted(os.listdir(DATA_DIR)):
                 if filename.endswith('.csv'):
                     with open(os.path.join(DATA_DIR, filename), 'r', encoding='utf-8') as f:
-                        count = sum(1 for line in f) - 1
-                        print(f"{filename:<30} | {count}")
-                        total += count
-        else:
-             print("Data directory missing.")
-        print("-" * 50)
-        print(f"{'总计':<30} | {total}")
+                        print(f"{filename:<30} | {sum(1 for line in f) - 1}")
         sys.exit(0)
 
     if not args.query:
