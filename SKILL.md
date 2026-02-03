@@ -43,6 +43,9 @@ Use these templates and scripts for complex tasks:
   ```bash
   python <SKILL_ROOT>/scripts/sync_jy_assets.py
   ```
+- **README to Tutorial**: Convert a project's README.md into a full installation tutorial video script:
+  - Read prompt: `prompts/readme_to_tutorial.md`
+  - Inject content into `{{README_CONTENT}}` variable
 - **Screen Recorder & Smart Zoom**: Record your screen and auto-apply zoom keyframes:
   ```bash
   python <SKILL_ROOT>/tools/recording/recorder.py
