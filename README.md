@@ -67,9 +67,13 @@ git clone https://github.com/luoluoluo22/jianying-editor-skill.git skills/jianyi
 为了让 Skill 正常工作，您需要在本地电脑上做一点点准备：
 
 ### 1. 安装 Python 依赖
-此 Skill 的自动导出功能需要一个自动化库。请在终端运行：
+请在终端运行以下命令以确保所有自动化功能正常工作：
 ```bash
-pip install uiautomation
+# 安装库：自动化导出、录屏监听、网页录制
+pip install uiautomation playwright pynput
+
+# 初始化网页捕获环境 (Web-to-Video 功能必填)
+playwright install chromium
 ```
 
 ### 2. 确认剪映安装位置
