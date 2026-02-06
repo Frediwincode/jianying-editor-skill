@@ -59,9 +59,10 @@ Use these templates and scripts for complex tasks:
   # For SRT only:
   python <SKILL_ROOT>/scripts/jy_wrapper.py export-srt --name "DraftName"
   ```
-- **Template Replacer**: Duplicate a draft and replace its main text segments:
+- **Template Clone & Replacer**: 安全克隆模板并批量替换物料 (防止损坏原模板):
   ```bash
-  # Internal tool used for bulk creation, refer to rules/core.md
+  # 克隆模板生成新项目
+  python <SKILL_ROOT>/scripts/jy_wrapper.py clone --template "酒店模板" --name "客户A_副本"
   ```
 - **API Validator**: Run a quick diagnostic of your environment:
   ```bash

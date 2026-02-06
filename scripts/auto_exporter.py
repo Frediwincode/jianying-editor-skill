@@ -36,6 +36,9 @@ def auto_export(draft_name, output_path, resolution=None, framerate=None):
         print(f"导出成功！文件位置: {output_path}")
     except Exception as e:
         print(f"导出失败: {str(e)}")
+        print("-" * 40)
+        print("💡 建议：如果自动导出持续失败，请尝试【手动重启剪映程序】并确保其处于首页或编辑状态后再运行。")
+        print("-" * 40)
         sys.exit(1)
 
 if __name__ == "__main__":

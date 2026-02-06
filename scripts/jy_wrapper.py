@@ -276,7 +276,7 @@ class JyProject:
     """
     
     def __init__(self, project_name: str, width: int = 1920, height: int = 1080, 
-                 drafts_root: str = None, overwrite: bool = True):
+                 drafts_root: str = None, overwrite: bool = True, script_instance: any = None):
         self.root = drafts_root or get_default_drafts_root()
         if not os.path.exists(self.root):
             try:
@@ -289,6 +289,11 @@ class JyProject:
         self.df = draft.DraftFolder(self.root)
         self.name = project_name
         
+        # 如果提供了脚本实例（克隆模式），直接绑定
+        if script_instance:
+            self.script = script_instance
+            return
+
         # 支持打开现有项目或创建新项目
         has_draft = self.df.has_draft(project_name)
         
@@ -322,121 +327,255 @@ class JyProject:
             print(f"🆕 Creating new project: {project_name}")
             self.script = self.df.create_draft(project_name, width, height, allow_replace=overwrite)
 
+    @staticmethod
+    def from_template(template_name: str, new_project_name: str, drafts_root: str = None):
+        """
+        [克隆模式]: 基于现有模板创建一个全新的项目副本。
+        防止直接在模板上修改导致的“模板损坏”问题。
+        """
+        root = drafts_root or get_default_drafts_root()
+        df = draft.DraftFolder(root)
+        
+        if not df.has_draft(template_name):
+            raise FileNotFoundError(f"Template '{template_name}' not found.")
+            
+        print(f"🚀 Cloning template '{template_name}' -> '{new_project_name}'")
+        # 使用底层库的 duplicate_as_template 功能实现物理拷贝
+        script = df.duplicate_as_template(template_name, new_project_name, allow_replace=True)
+        
+        # 返回映射后的 JyProject 实例
+        return JyProject(new_project_name, drafts_root=root, script_instance=script)
+
+    @staticmethod
+    def import_external_draft(external_path: str, new_name: str = None, drafts_root: str = None, overwrite: bool = True):
+        """
+        [智能物理导入]: 将外部工程文件夹导入剪映工作区。
+        支持智能探测：如果 external_path 下没有 draft_content.json，会自动向下搜索子目录。
+        """
+        if not os.path.exists(external_path):
+            raise FileNotFoundError(f"External path not found: {external_path}")
+
+        # --- 智能探测真正的草稿根目录 ---
+        real_source = None
+        if os.path.exists(os.path.join(external_path, "draft_content.json")):
+            real_source = external_path
+        else:
+            print(f"🔍 '{external_path}' is not a direct draft folder. Searching sub-directories...")
+            for root, dirs, files in os.walk(external_path):
+                if "draft_content.json" in files:
+                    real_source = root
+                    print(f"✨ Found real draft at: {real_source}")
+                    break
+        
+        if not real_source:
+            raise FileNotFoundError(f"No valid JianYing draft (draft_content.json) found under: {external_path}")
+            
+        target_root = drafts_root or get_default_drafts_root()
+        original_name = os.path.basename(real_source.rstrip(os.path.sep))
+        project_name = new_name or original_name
+        
+        target_path = os.path.join(target_root, project_name)
+        
+        if os.path.abspath(real_source) == os.path.abspath(target_path):
+            print(f"ℹ️ Project already in workdir: {project_name}")
+            return JyProject(project_name, drafts_root=target_root)
+
+        print(f"🚚 Importing real draft: '{real_source}' -> '{target_path}'")
+        
+        if os.path.exists(target_path):
+            if overwrite:
+                shutil.rmtree(target_path)
+            else:
+                raise FileExistsError(f"Project '{project_name}' already exists.")
+        
+        # 执行物理拷贝 (仅拷贝真实的草稿根目录)
+        shutil.copytree(real_source, target_path)
+        
+        # 显式指定 overwrite=False 以加载刚刚导入的内容，防止被清空
+        return JyProject(project_name, drafts_root=target_root, overwrite=False)
+
+    def get_missing_assets(self):
+        """
+        [深度诊断]: 返回工程中所有丢失素材的详细清单（含原始路径）。
+        """
+        missing_map = {} # path -> name
+        
+        # 探测所有可能的素材来源
+        materials = []
+        if hasattr(self.script, 'materials'):
+            materials.extend(getattr(self.script.materials, 'videos', []))
+            materials.extend(getattr(self.script.materials, 'audios', []))
+        
+        if hasattr(self.script, 'imported_materials'):
+            materials.extend(self.script.imported_materials.get('videos', []))
+            materials.extend(self.script.imported_materials.get('audios', []))
+            materials.extend(self.script.imported_materials.get('images', []))
+
+        for m in materials:
+            path = getattr(m, 'path', '') if not isinstance(m, dict) else m.get('path', '')
+            if path and not os.path.exists(path):
+                missing_map[path] = os.path.basename(path)
+        
+        # 转换为结构化列表输出
+        result = []
+        for path, name in missing_map.items():
+            result.append({
+                "name": name,
+                "orig_path": path
+            })
+        
+        return sorted(result, key=lambda x: x['name'])
+
     def save(self):
         """
-        保存草稿并执行交付前质检 (Pre-Delivery Checklist)。
-        输出详细的 JSON 格式诊断报告，供 Agent 读取。
+        保存草稿并执行深度质检 (Deep Quality Check)。
+        输出完整的 JSON 报告，包含轨道详情、素材映射和时序分析。
         """
         import json
         
-        # --- 1. Pre-Delivery Checklist (质检) ---
-        diagnostics = {
-            "validations": [],
-            "warnings": [],
-            "stats": {}
-        }
-        
-        # 1.1 检查所有媒体路径是否真实存在
-        missing_files = []
-        if hasattr(self.script, 'materials'):
-            media_lists = [self.script.materials.videos, self.script.materials.audios]
-            for m_list in media_lists:
-                for m in m_list:
-                    path = getattr(m, 'path', None)
-                    if isinstance(m, dict):
-                        path = m.get('path')
-                    
-                    if path and not os.path.exists(path):
-                        missing_files.append(path)
-        
-        if missing_files:
-            diagnostics['validations'].append({"status": "FAIL", "msg": f"Missing media files: {len(missing_files)}", "details": missing_files})
-        else:
-            diagnostics['validations'].append({"status": "PASS", "msg": "Media paths check"})
-
-        # --- 1.2 时长异常检查 (建议 5) ---
-        # 如果非空项目的持续时长极短 (小于 0.1s)，通常意味着单位传参错误 (数字 vs 字符串)
-        # 我们在这里进行统计，逻辑在下方的轨道遍历中完成
-        
-        # 1.3 统计轨道信息与音量检查
+        # --- 1. 获取基础统计与片段明细 ---
         total_duration = 0
-        audio_tracks_high_vol = 0
-        bgm_candidates = []
+        track_details = []
+        missing_count = 0
         
+        # 建立素材快速查找表
+        mat_lookup = {}
+        if hasattr(self.script, 'materials'):
+            for m in (self.script.materials.videos + self.script.materials.audios):
+                mat_lookup[m.material_id] = getattr(m, 'path', '')
+        
+        # 深度扫描轨道
         tracks = self.script.tracks
         iterator = tracks.values() if isinstance(tracks, dict) else (tracks if isinstance(tracks, list) else [])
+        # 兼容 imported_tracks
+        imported_tracks = getattr(self.script, 'imported_tracks', [])
         
+        all_tracks_to_scan = list(iterator) + list(imported_tracks)
         track_stats = {"video": 0, "audio": 0, "text": 0, "effect": 0}
         
-        for t in iterator:
+        for i, t in enumerate(all_tracks_to_scan):
             t_type = getattr(t, 'track_type', None)
+            t_name = getattr(t, 'name', f"Track_{i}")
             
-            # 统计时长
-            for seg in t.segments:
-                end_time = seg.target_timerange.start + seg.target_timerange.duration
-                if end_time > total_duration:
-                    total_duration = end_time
-            
-            # 统计轨道数
+            # 统计类型
             type_map = {
                 draft.TrackType.video: "video", draft.TrackType.audio: "audio",
                 draft.TrackType.text: "text", draft.TrackType.effect: "effect"
             }
-            if t_type in type_map:
-                track_stats[type_map[t_type]] += 1
+            if t_type in type_map: track_stats[type_map[t_type]] += 1
+            
+            segments_info = []
+            for seg in t.segments:
+                d_start = seg.target_timerange.start
+                d_dur = seg.target_timerange.duration
+                d_end = d_start + d_dur
+                if d_end > total_duration: total_duration = d_end
                 
-            # 检查音频音量 (假设 AudioSegment 有 volume 属性，pyJianYingDraft 目前可能存储在 material 或 extra_material_refs)
-            # 由于库的封装复杂，这里做简化检查：如果 Audio Track 数量 > 1，警告需检查混音
-            if t_type == draft.TrackType.audio:
-                # 简单启发式：如果轨道名包含 BGM 但没显式设置音量 (通常需要手动确认)
-                if "BGM" in getattr(t, 'name', '').upper():
-                    bgm_candidates.append(getattr(t, 'name', 'Unknown'))
+                # 获取素材路径
+                final_path = ""
+                if hasattr(seg, 'material_instance'):
+                    final_path = getattr(seg.material_instance, 'path', '')
+                elif hasattr(seg, 'material_id'):
+                    mid = seg.material_id
+                    # 查表或从 imported_materials 查找
+                    final_path = mat_lookup.get(mid, "")
+                    if not final_path and hasattr(self.script, 'imported_materials'):
+                        for im in self.script.imported_materials.get('videos', []) + self.script.imported_materials.get('audios', []):
+                            if im['id'] == mid:
+                                final_path = im.get('path', '')
+                                break
 
-        if len(bgm_candidates) > 0 and track_stats['audio'] > 1:
-             diagnostics['warnings'].append("Detected BGM track with other audio tracks. Please ensure BGM volume is lowered (e.g., -10dB).")
+                # 检查缺失
+                is_missing = False
+                if final_path and not os.path.exists(final_path):
+                    missing_count += 1
+                    is_missing = True
 
-        # 检查时长是否过短 (建议 5)
-        # 0.1s = 100,000us
-        has_content = any(v > 0 for v in track_stats.values())
-        if has_content and total_duration > 0 and total_duration < 100000:
-            diagnostics['warnings'].append(f"CRITICAL WARNING: Total duration is extremely short ({total_duration}us, approx {total_duration/1000000}s). "
-                                         "This usually happens when passing numeric seconds (e.g., 5.0) instead of strings (e.g., '5s'). "
-                                         "Please check your add_media/add_text calls.")
+                # 深度解析：片段绑定的视觉特效 (VFX)
+                vfx_list = []
+                # 1. 片段内绑定的滤镜/特效
+                if hasattr(seg, 'filters') and seg.filters:
+                    for f in seg.filters: vfx_list.append({"type": "filter", "name": getattr(f, 'name', 'Filter')})
+                if hasattr(seg, 'effects') and seg.effects:
+                    for e in seg.effects: vfx_list.append({"type": "effect", "name": getattr(e, 'name', 'Effect')})
+                
+                # 2. 转场 (Transition) - 通常附在片段尾部
+                if getattr(seg, 'transition', None):
+                    vfx_list.append({
+                        "type": "transition", 
+                        "name": getattr(seg.transition, 'name', 'Transition'),
+                        "duration": f"{getattr(seg.transition, 'duration', 0)/1000000:.2f}s"
+                    })
 
-        diagnostics['stats']['duration_us'] = total_duration
-        diagnostics['stats']['duration_formatted'] = format_srt_time(total_duration).split(',')[0]
-        diagnostics['stats']['tracks'] = track_stats
+                # 3. 如果片段本身就是特效/滤镜轨道上的“独立片段”
+                if not vfx_list:
+                    # 尝试从 material_instance 里的名字恢复
+                    if hasattr(seg, 'effect_inst'): # EffectSegment
+                         vfx_list.append({"type": "scene_effect", "name": getattr(seg.effect_inst, 'name', 'Scene Effect')})
+                    elif hasattr(seg, 'material') and hasattr(seg, 'meta'): # FilterSegment
+                         vfx_list.append({"type": "global_filter", "name": getattr(seg.material, 'name', 'Global Filter')})
 
-        # --- 2. Save ---
+                segments_info.append({
+                    "name": getattr(seg, 'name', os.path.basename(final_path) if final_path else (vfx_list[0]['name'] if vfx_list else "Untitled")),
+                    "start": f"{d_start/1000000:.2f}s",
+                    "duration": f"{d_dur/1000000:.2f}s",
+                    "path": final_path,
+                    "status": "MISSING" if is_missing else "OK",
+                    "vfx": vfx_list # 新增 VFX 字段
+                })
+            
+            track_details.append({
+                "track_index": i,
+                "type": str(t_type).split('.')[-1] if t_type else "unknown",
+                "name": t_name,
+                "segments_count": len(segments_info),
+                "segments": segments_info
+            })
+
+        # --- 2. 构造诊断报告 ---
+        diagnostics = {
+            "validations": [],
+            "warnings": [],
+            "stats": {
+                "duration_us": total_duration,
+                "duration_formatted": format_srt_time(total_duration).split(',')[0],
+                "tracks_summary": track_stats,
+                "total_missing_files": missing_count
+            },
+            "timeline_overview": track_details
+        }
+        
+        if missing_count > 0:
+            diagnostics['validations'].append({"status": "FAIL", "msg": f"Missing {missing_count} media files"})
+        else:
+            diagnostics['validations'].append({"status": "PASS", "msg": "All media files verified"})
+
+        # --- 3. 执行保存逻辑 ---
         draft_path = os.path.join(self.root, self.name)
         try:
             self.script.save()
             save_status = "SUCCESS"
-            
-            # [Enhancement]: 强制更新文件夹修改时间
             if os.path.exists(draft_path):
                 os.utime(draft_path, None)
-            
-            # [Ultimate Fix]: 强制更新剪映全局索引 root_meta_info.json
-            duration_us = diagnostics['stats'].get('duration_us', 0)
-            self._update_root_meta_info(draft_path, duration_us)
-            
+            self._update_root_meta_info(draft_path, total_duration)
         except Exception as e:
             save_status = f"ERROR: {str(e)}"
         
-        # --- 3. Output Report ---
-        # draft_path 已经在上面定义过了
-        
         report = {
             "status": save_status,
-            "draft_path": draft_path,
             "draft_name": self.name,
-            "diagnostics": diagnostics
+            "draft_path": draft_path,
+            "report_summary": {
+                "total_duration": diagnostics['stats']['duration_formatted'],
+                "tracks_count": sum(track_stats.values()),
+                "missing_files": missing_count
+            },
+            "full_timeline": track_details  # AI 重点关注的字段
         }
-        
-        print("\n=== JianYing Draft Build Report ===")
-        print(json.dumps(report, indent=2, ensure_ascii=False))
-        print("===================================\n")
+        # 之前这里会打印完整的 JSON，在 Windows 控制台下容易导致编码冲突崩溃
+        # 现在改为静默生成，只在看板前端展示
+        print(f"✅ Report generated successfully: {report['report_summary']['missing_files']} files missing.")
+        return report
 
     def _update_root_meta_info(self, draft_path: str, duration_us: int = 0):
         """
@@ -750,6 +889,159 @@ class JyProject:
         main_script.duration = max(main_script.duration, start_us + duration)
         print(f"📦 Compound Injection: '{clip_name}' -> '{self.name}' (Start: {start_us/1e6}s, Dur: {duration/1e6}s)")
         return seg
+
+    # --- 模板替换与路径重连 API ---
+
+    def replace_material_by_name(self, placeholder_name: str, new_material_path: str, start_s: float = 0):
+        """
+        通过片段名称或素材名称语义化替换素材。
+        支持新创建轨道 (tracks) 和 加载的模板轨道 (imported_tracks)。
+        """
+        if not os.path.exists(new_material_path):
+            print(f"❌ Replacement Failed: File not found -> {new_material_path}")
+            return False
+
+        new_mat = draft.VideoMaterial(new_material_path)
+        count = 0
+
+        # 获取所有待扫描片段的函数 (闭包)
+        def process_segments(segments, is_imported=False):
+            nonlocal count
+            for seg in segments:
+                # 匹配逻辑
+                mat_name = ""
+                # A. 轨道直接持有的素材 (新创建)
+                if hasattr(seg, 'material_instance'):
+                    mat_name = getattr(seg.material_instance, 'material_name', getattr(seg.material_instance, 'name', ''))
+                # B. 模板加载的素材 (ImportedSegment 需要查表)
+                elif hasattr(seg, 'material_id'):
+                    mid = seg.material_id
+                    for m in self.script.imported_materials.get('videos', []):
+                        if m['id'] == mid:
+                            mat_name = m.get('material_name', m.get('name', ''))
+                            break
+                
+                if mat_name:
+                    # print(f"🔍 [Debug] Scanning segment mat: '{mat_name}'") # 只有非常深入排查才开启
+                    pass
+
+                # 执行替换
+                if mat_name and placeholder_name.lower() in mat_name.lower():
+                    print(f"🔄 [TemplateMatch] Target: '{mat_name}' -> '{os.path.basename(new_material_path)}'")
+                    if hasattr(seg, 'material_instance'):
+                        seg.material_instance = new_mat
+                    else:
+                        seg.material_id = new_mat.material_id
+                        self.script.add_material(new_mat)
+                    
+                    # 同步时长/起点
+                    old_dur = seg.target_timerange.duration
+                    seg.source_timerange = draft.Timerange(int(start_s * 1000000), old_dur)
+                    count += 1
+
+        # 1. 扫描新创建的轨道
+        tracks = self.script.tracks
+        iterator = tracks.values() if isinstance(tracks, dict) else (tracks if isinstance(tracks, list) else [])
+        for t in iterator: process_segments(t.segments)
+
+        # 2. 扫描加载的模板轨道
+        if hasattr(self.script, 'imported_tracks'):
+            for t in self.script.imported_tracks:
+                if hasattr(t, 'segments'): process_segments(t.segments, is_imported=True)
+
+        if count > 0:
+            print(f"✅ Successfully replaced {count} instances.")
+            return True
+        return False
+
+    def replace_material_by_path(self, old_path_keyword: str, new_material_path: str, start_s: float = 0):
+        """
+        通过原始路径关键字替换素材。
+        """
+        if not os.path.exists(new_material_path):
+            print(f"❌ Replacement Failed: File not found -> {new_material_path}")
+            return False
+
+        new_mat = draft.VideoMaterial(new_material_path)
+        count = 0
+
+        def process_segments(segments):
+            nonlocal count
+            for seg in segments:
+                orig_path = ""
+                if hasattr(seg, 'material_instance'):
+                    orig_path = getattr(seg.material_instance, 'path', '')
+                elif hasattr(seg, 'material_id'):
+                    mid = seg.material_id
+                    for m in self.script.imported_materials.get('videos', []):
+                        if m['id'] == mid:
+                            orig_path = m.get('path', '')
+                            break
+                
+                if old_path_keyword.lower() in orig_path.lower():
+                    print(f"🔗 [PathMatch] Found '{orig_path}', redirecting...")
+                    if hasattr(seg, 'material_instance'):
+                        seg.material_instance = new_mat
+                    else:
+                        seg.material_id = new_mat.material_id
+                        self.script.add_material(new_mat)
+                    
+                    old_dur = seg.target_timerange.duration
+                    seg.source_timerange = draft.Timerange(int(start_s * 1000000), old_dur)
+                    count += 1
+
+        # 扫描两类轨道
+        tracks = self.script.tracks
+        iterator = tracks.values() if isinstance(tracks, dict) else (tracks if isinstance(tracks, list) else [])
+        for t in iterator: process_segments(t.segments)
+        if hasattr(self.script, 'imported_tracks'):
+            for t in self.script.imported_tracks:
+                if hasattr(t, 'segments'): process_segments(t.segments)
+
+        return count > 0
+
+    def reconnect_all_assets(self, local_asset_root: str):
+        """
+        全局路径重连：自动找回失效的素材。
+        """
+        print(f"🛠️  Starting Global Reconnection in: {local_asset_root}")
+        file_index = {}
+        for root, _, files in os.walk(local_asset_root):
+            for f in files: file_index[f.lower()] = os.path.join(root, f)
+
+        reconnected_count = 0
+        
+        # 1. 处理新创建的素材 (ScriptMaterial)
+        if hasattr(self.script, 'materials'):
+            all_mats = self.script.materials.videos + self.script.materials.audios
+            for mat in all_mats:
+                orig_path = getattr(mat, 'path', '')
+                if not orig_path or not os.path.exists(orig_path):
+                    filename = os.path.basename(orig_path).lower()
+                    if filename in file_index:
+                        mat.path = file_index[filename]
+                        if hasattr(mat, 'local_material_id'): mat.local_material_id = ""
+                        reconnected_count += 1
+        
+        # 2. 处理导入的素材库 (Imported Materials JSON dicts)
+        if hasattr(self.script, 'imported_materials'):
+            for mat_list in self.script.imported_materials.values():
+                for mat_dict in mat_list:
+                    p = mat_dict.get('path', '')
+                    if p and not os.path.exists(p):
+                        fname = os.path.basename(p).lower()
+                        if fname in file_index:
+                            new_local_path = file_index[fname]
+                            mat_dict['path'] = new_local_path
+                            # 只清除物理指纹，保留主逻辑关联 ID (id)
+                            # 这样轨道上的片段就能瞬间恢复显示
+                            if 'local_material_id' in mat_dict:
+                                mat_dict['local_material_id'] = ""
+                            reconnected_count += 1
+                            print(f"🔗 [Auto-Link] Found local asset for '{fname}', path updated.")
+        
+        print(f"🏁 Reconnection finished. Fixed {reconnected_count} assets.")
+        return reconnected_count
 
     def _calculate_duration(self, req_duration, phys_duration):
         if req_duration is not None:
@@ -1288,6 +1580,16 @@ def cli():
     zoom_parser.add_argument("--json", required=True, help="Events JSON path")
     zoom_parser.add_argument("--scale", type=int, default=150, help="Zoom scale percentage")
     
+    # Command: clone (新)
+    clone_parser = subparsers.add_parser("clone", help="Clone an existing draft as a template")
+    clone_parser.add_argument("--template", required=True, help="Source template name")
+    clone_parser.add_argument("--name", required=True, help="New project name")
+    
+    # Command: import (新)
+    import_ext_parser = subparsers.add_parser("import", help="Import an external project folder into JianYing drafts")
+    import_ext_parser.add_argument("--path", required=True, help="Full path to the external project folder")
+    import_ext_parser.add_argument("--name", help="New project name (optional)")
+    
     args = parser.parse_args()
     
     if args.command == "check":
@@ -1350,6 +1652,22 @@ def cli():
         else:
             print(f"❌ Failed to load video: {args.video}")
         p.save()
+
+    elif args.command == "clone":
+        try:
+            p = JyProject.from_template(args.template, args.name)
+            p.save() # 确保克隆后的项目立即生效保存一次
+            print(f"✅ Success! New project created: {args.name}")
+        except Exception as e:
+            print(f"❌ Clone failed: {e}")
+
+    elif args.command == "import":
+        try:
+            p = JyProject.import_external_draft(args.path, args.name)
+            p.save()
+            print(f"✅ Success! Project imported to JianYing drafts: {p.name}")
+        except Exception as e:
+            print(f"❌ Import failed: {e}")
         
     else:
         parser.print_help()
