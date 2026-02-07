@@ -7,6 +7,7 @@ JianYing Editor Skill - High Level Wrapper (Bootstrap)
 
 import os
 import sys
+import platform
 import shutil
 import warnings
 import argparse
@@ -14,6 +15,8 @@ import difflib
 import time
 import uuid
 from typing import Union
+
+DRAFT_JSON_FILENAME = "draft_info.json" if platform.system() == "Darwin" else "draft_content.json"
 
 # Force UTF-8 output for Windows consoles to support Emojis
 if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
@@ -94,7 +97,7 @@ def get_all_drafts(root_path: str = None):
         path = os.path.join(root, item)
         if os.path.isdir(path):
             # 剪映草稿文件夹通常包含这两个文件之一
-            if os.path.exists(os.path.join(path, "draft_content.json")) or \
+            if os.path.exists(os.path.join(path, DRAFT_JSON_FILENAME)) or \
                os.path.exists(os.path.join(path, "draft_meta_info.json")):
                 drafts.append({
                     "name": item,
@@ -300,9 +303,9 @@ class JyProject:
         # 损坏检测与自愈 (Self-Healing)
         if has_draft:
             draft_path = os.path.join(self.root, project_name)
-            content_path = os.path.join(draft_path, "draft_content.json")
+            content_path = os.path.join(draft_path, DRAFT_JSON_FILENAME)
             meta_path = os.path.join(draft_path, "draft_meta_info.json")
-            
+
             # 如果缺少关键文件，视为损坏
             if not os.path.exists(content_path) or not os.path.exists(meta_path):
                 print(f"⚠️ Corrupted draft detected (missing json): {project_name}")
@@ -350,25 +353,25 @@ class JyProject:
     def import_external_draft(external_path: str, new_name: str = None, drafts_root: str = None, overwrite: bool = True):
         """
         [智能物理导入]: 将外部工程文件夹导入剪映工作区。
-        支持智能探测：如果 external_path 下没有 draft_content.json，会自动向下搜索子目录。
+        支持智能探测：如果 external_path 下没有草稿JSON文件，会自动向下搜索子目录。
         """
         if not os.path.exists(external_path):
             raise FileNotFoundError(f"External path not found: {external_path}")
 
         # --- 智能探测真正的草稿根目录 ---
         real_source = None
-        if os.path.exists(os.path.join(external_path, "draft_content.json")):
+        if os.path.exists(os.path.join(external_path, DRAFT_JSON_FILENAME)):
             real_source = external_path
         else:
             print(f"🔍 '{external_path}' is not a direct draft folder. Searching sub-directories...")
             for root, dirs, files in os.walk(external_path):
-                if "draft_content.json" in files:
+                if DRAFT_JSON_FILENAME in files:
                     real_source = root
                     print(f"✨ Found real draft at: {real_source}")
                     break
-        
+
         if not real_source:
-            raise FileNotFoundError(f"No valid JianYing draft (draft_content.json) found under: {external_path}")
+            raise FileNotFoundError(f"No valid JianYing draft ({DRAFT_JSON_FILENAME}) found under: {external_path}")
             
         target_root = drafts_root or get_default_drafts_root()
         original_name = os.path.basename(real_source.rstrip(os.path.sep))
@@ -630,7 +633,7 @@ class JyProject:
                 "draft_id": draft_id,
                 "draft_is_ai_shorts": False,
                 "draft_is_invisible": False,
-                "draft_json_file": f"{d_path_fwd}/draft_content.json",
+                "draft_json_file": f"{d_path_fwd}/{DRAFT_JSON_FILENAME}",
                 "draft_name": self.name,
                 "draft_new_version": "",
                 "draft_root_path": d_root_fwd,
