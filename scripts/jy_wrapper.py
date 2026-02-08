@@ -435,7 +435,10 @@ class JyProject:
         输出完整的 JSON 报告，包含轨道详情、素材映射和时序分析。
         """
         import json
-        
+
+        # --- 0. macOS Sandbox: Localize external media ---
+        self._localize_media()
+
         # --- 1. 获取基础统计与片段明细 ---
         total_duration = 0
         track_details = []
@@ -665,6 +668,43 @@ class JyProject:
                 json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
             
             print(f"🔄 Root Meta Updated: Injected '{self.name}' (Duration: {duration_us/1000000}s) into project list.")
+
+            # Also update per-project draft_meta_info.json so JianYing doesn't override duration to 0
+            try:
+                p_meta["tm_duration"] = duration_us
+                p_meta["tm_draft_modified"] = current_timestamp
+
+                # Populate draft_materials so JianYing recognizes image files
+                if hasattr(self, 'script') and hasattr(self.script, 'materials'):
+                    materials_type0 = []
+                    for mat in getattr(self.script.materials, 'videos', []):
+                        path = getattr(mat, 'path', '')
+                        if path and os.path.exists(path):
+                            ext = os.path.splitext(path)[1].lower()
+                            is_image = ext in ('.jpg', '.jpeg', '.png', '.bmp', '.webp', '.gif')
+                            materials_type0.append({
+                                "create_time": current_timestamp // 1000000,
+                                "duration": getattr(mat, 'duration', 0),
+                                "extra_info": os.path.basename(path),
+                                "file_Path": path,
+                                "height": getattr(mat, 'height', 0),
+                                "id": uuid.uuid4().hex.upper(),
+                                "metetype": "photo" if is_image else "video",
+                                "roughcut_time_range": {"duration": 0, "start": 0},
+                                "sub_time_range": {"duration": -1, "start": -1},
+                                "type": 0,
+                                "width": getattr(mat, 'width', 0)
+                            })
+                    for entry in p_meta.get("draft_materials", []):
+                        if entry.get("type") == 0:
+                            entry["value"] = materials_type0
+                            break
+
+                with open(project_meta_path, 'w', encoding='utf-8') as f:
+                    json.dump(p_meta, f, ensure_ascii=False, separators=(',', ':'))
+                print(f"🔄 Draft Meta Updated: tm_duration={duration_us}")
+            except Exception as e:
+                print(f"⚠️ Failed to update draft_meta_info: {e}")
 
         except Exception as e:
             print(f"⚠️ Failed to update root_meta_info: {e}")
@@ -1045,6 +1085,61 @@ class JyProject:
         
         print(f"🏁 Reconnection finished. Fixed {reconnected_count} assets.")
         return reconnected_count
+
+    def _localize_media(self):
+        """
+        [macOS Sandbox Fix] Copy external media files into the draft folder
+        so Jianying's sandboxed app can access them. No-op on non-Darwin.
+        """
+        if platform.system() != "Darwin":
+            return
+
+        draft_path = os.path.join(self.root, self.name)
+        resources_dir = os.path.join(draft_path, "Resources")
+        copied_map = {}  # original_path -> new_path (dedup)
+
+        def _localize_path(orig_path):
+            if not orig_path or not os.path.isabs(orig_path):
+                return orig_path
+            if os.path.abspath(orig_path).startswith(os.path.abspath(draft_path)):
+                return orig_path
+            if not os.path.exists(orig_path):
+                return orig_path
+            if orig_path in copied_map:
+                return copied_map[orig_path]
+
+            os.makedirs(resources_dir, exist_ok=True)
+            dest_name = os.path.basename(orig_path)
+            dest_path = os.path.join(resources_dir, dest_name)
+
+            # Handle filename collision
+            if os.path.exists(dest_path) and not os.path.samefile(orig_path, dest_path):
+                base, ext = os.path.splitext(dest_name)
+                counter = 1
+                while os.path.exists(dest_path):
+                    dest_path = os.path.join(resources_dir, f"{base}_{counter}{ext}")
+                    counter += 1
+
+            if not os.path.exists(dest_path):
+                shutil.copy2(orig_path, dest_path)
+                print(f"📦 Localized: {os.path.basename(orig_path)} -> Resources/")
+
+            copied_map[orig_path] = dest_path
+            return dest_path
+
+        # 1. New materials (VideoMaterial / AudioMaterial objects)
+        if hasattr(self.script, 'materials'):
+            for mat in self.script.materials.videos + self.script.materials.audios:
+                orig = getattr(mat, 'path', '')
+                if orig:
+                    mat.path = _localize_path(orig)
+
+        # 2. Imported materials (plain dicts from templates)
+        if hasattr(self.script, 'imported_materials'):
+            for mat_list in self.script.imported_materials.values():
+                for mat_dict in mat_list:
+                    if isinstance(mat_dict, dict) and mat_dict.get('path'):
+                        mat_dict['path'] = _localize_path(mat_dict['path'])
 
     def _calculate_duration(self, req_duration, phys_duration):
         if req_duration is not None:
